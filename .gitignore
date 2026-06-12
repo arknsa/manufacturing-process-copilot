@@ -1,0 +1,17 @@
+.venv/
+.env
+
+mlruns/
+
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+.coverage
+.pytest_cache/
+htmlcov/
+
+*.log
+*.egg-info/
+
+.claude/

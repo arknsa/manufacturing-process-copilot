@@ -1,0 +1,72 @@
+{
+  "run_parameters": {
+    "simulation_days": 540,
+    "target_orders_per_day": 10,
+    "num_machines": 8,
+    "seed": 42,
+    "rework_fraction": 0.8
+  },
+  "dataset_summary": {
+    "total_rows": 5302,
+    "total_columns": 50,
+    "feature_columns": 37,
+    "target_columns": 4,
+    "metadata_columns": 9,
+    "delay_rate_pct": 32.08,
+    "mean_delay_minutes": 439.8,
+    "median_delay_minutes": 278.0,
+    "p95_delay_minutes": 1352.0
+  },
+  "root_cause_distribution": {
+    "multiple_causes": 65.43,
+    "setup_overrun": 17.7,
+    "planning_schedule_conflict": 7.82,
+    "material_unavailability": 4.7,
+    "quality_failure_rework": 2.0,
+    "machine_breakdown": 1.23,
+    "none": 1.12
+  },
+  "calibration_checks": {
+    "delay_rate": {
+      "value": 32.08,
+      "pass": true,
+      "target": "22\u201340%"
+    },
+    "utilisation_causal": {
+      "high_util_delay_rate": 62.92,
+      "low_util_delay_rate": 23.55,
+      "pass": true,
+      "target": "high_util_delay > low_util_delay"
+    },
+    "material_causal": {
+      "no_material_delay_rate": 79.43,
+      "has_material_delay_rate": 25.62,
+      "pass": true,
+      "target": "no_material_delay > has_material_delay (69.3% vs 32.1%)"
+    },
+    "skill_causal": {
+      "senior_delay_rate": 30.42,
+      "junior_delay_rate": 34.29,
+      "pass": true,
+      "target": "senior_delay \u2264 junior_delay"
+    },
+    "feature_completeness": {
+      "missing_values": 0,
+      "pass": true,
+      "target": "0 missing values"
+    }
+  },
+  "calibration_all_pass": true,
+  "train_val_test_split": {
+    "train_rows": 3764,
+    "val_rows": 954,
+    "test_rows": 584,
+    "train_pct": 71.0,
+    "val_pct": 18.0,
+    "test_pct": 11.0
+  },
+  "schema_contract": {
+    "column_count_valid": true,
+    "missing_values": 0
+  }
+}
