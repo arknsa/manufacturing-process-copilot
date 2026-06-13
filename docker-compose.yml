@@ -1,0 +1,64 @@
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mpc
+      POSTGRES_PASSWORD: mpc
+      POSTGRES_DB: mpc
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mpc -d mpc"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://mpc:mpc@postgres:5432/mpc
+      MLFLOW_ALLOW_FILE_STORE: "true"
+      MLFLOW_TRACKING_URI: "file:///app/mlruns"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./mlruns:/app/mlruns
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "
+        python /app/backend/scripts/fix_mlruns_paths.py /app/mlruns &&
+        python -m alembic -c backend/alembic.ini upgrade head &&
+        uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+      "
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      API_BASE_URL: http://backend:8000
+    ports:
+      - "8501:8501"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  postgres_data:

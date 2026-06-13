@@ -1,0 +1,42 @@
+# Version control / IDE
+.git
+.claude
+.venv
+
+# ML artefacts — not needed at runtime
+mlruns
+ml/data/raw
+ml/data/processed
+ml/notebooks
+ml/models
+ml/tests
+
+# Python cache
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+.ipynb_checkpoints
+
+# Test / coverage
+htmlcov
+.coverage
+.pytest_cache
+backend/tests
+
+# Logs / temp
+*.log
+*.bak
+day*.log
+
+# Frontend (not needed in backend image)
+frontend
+
+# Docs / infra / one-off scripts
+docs
+infra
+create_*.py
+fix_*.py
+rebuild_*.py
+update_*.py
+requirements-lock.txt

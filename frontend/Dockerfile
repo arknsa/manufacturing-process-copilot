@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Install deps first (layer-cached)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --timeout 120 -r requirements.txt
 
 # Copy application code
 COPY . .
@@ -12,7 +12,7 @@ COPY . .
 EXPOSE 8501
 
 # Backend URL is injected at container runtime via docker-compose env
-ENV API_BASE_URL=http://api:8000
+ENV API_BASE_URL=http://backend:8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')" || exit 1
