@@ -33,20 +33,100 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.services.agent.memory import SessionMemory
 from backend.app.services.agent.tool_registry import ToolRegistry
 from backend.app.services.agent.tools import analytics, orders, predictions, recommendations
-from backend.app.services.llm.client import LLMClient
+from backend.app.services.llm.client import (
+    LLMAuthError,
+    LLMClient,
+    LLMConnectionError,
+    LLMModelNotFoundError,
+    LLMPermissionError,
+    LLMProviderError,
+    LLMRateLimitError,
+    LLMTimeoutError,
+)
 from backend.app.services.llm.prompts import OBSERVATION_PROMPT, SYSTEM_PROMPT, TOOL_SELECTION_PROMPT
 
 logger = logging.getLogger(__name__)
 
 # ReAct response parser — lenient: allows Thought to span multiple lines
 _THOUGHT_RE = re.compile(r"Thought:\s*(.+?)(?=\nAction:|\Z)", re.DOTALL | re.IGNORECASE)
-_ACTION_RE = re.compile(r"Action:\s*(\S+)", re.IGNORECASE)
+_ACTION_RE = re.compile(
+    r"Action\s*:\s*(?!Input\b)(\S+?)(?=\s|$|[\r\n]|(?:Action\s+Input|Thought|Observation))",
+    re.IGNORECASE,
+)
 _INPUT_RE = re.compile(r"Action Input:\s*(.+)", re.DOTALL | re.IGNORECASE)
 
 _FALLBACK = (
     "I wasn't able to retrieve the information needed to answer your question. "
     "Please try rephrasing or provide more specific details such as an order number."
 )
+
+# ---------------------------------------------------------------------------
+# Output sanitization
+# ---------------------------------------------------------------------------
+
+# Patterns applied in order to strip internal ReAct scaffolding that must
+# never reach the end user. All label patterns are anchored to line-start
+# (re.MULTILINE) so the words "thought" or "action" in mid-sentence prose
+# are left untouched.
+_STRIP_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_STRIP_THOUGHT_RE = re.compile(r"^Thought\s*:.*?(?=\n(?:Action|Action Input|FINAL.?ANSWER)\b|\Z)",
+                                re.DOTALL | re.MULTILINE | re.IGNORECASE)
+_STRIP_ACTION_INPUT_RE = re.compile(r"^Action Input\s*:[ \t]*", re.MULTILINE | re.IGNORECASE)
+_STRIP_ACTION_RE = re.compile(r"^Action\s*:.*$", re.MULTILINE | re.IGNORECASE)
+_STRIP_OBSERVATION_RE = re.compile(r"^Observation\s*:.*$", re.MULTILINE | re.IGNORECASE)
+_STRIP_FINAL_ANSWER_RE = re.compile(
+    r"^(?:FINAL[_ ]?ANSWER|Answer)\s*:\s*", re.MULTILINE | re.IGNORECASE
+)
+
+
+def _strip_react_artifacts(text: str) -> str:
+    """Remove internal ReAct scaffolding from a final answer before it reaches the user.
+
+    Applied only to text designated as the final answer — never to JSON tool inputs.
+    Order matters: remove the largest noise blocks first, then labels, then tidy up.
+    """
+    # 1. Remove <think>…</think> blocks (Qwen3 chain-of-thought tokens)
+    text = _STRIP_THINK_RE.sub("", text)
+    # 2. Remove Thought: lines (anchored to line-start; leaves mid-sentence "thought" intact)
+    text = _STRIP_THOUGHT_RE.sub("", text)
+    # 3. Remove "Action Input:" label prefix (content on the same/following lines is kept)
+    text = _STRIP_ACTION_INPUT_RE.sub("", text)
+    # 4. Remove "Action: <token>" lines entirely
+    text = _STRIP_ACTION_RE.sub("", text)
+    # 4b. Remove "Observation: <text>" lines (spontaneous Qwen3 ReAct continuation)
+    text = _STRIP_OBSERVATION_RE.sub("", text)
+    # 5. Remove leading "FINAL_ANSWER:" / "FINAL ANSWER:" / "Answer:" prefix
+    text = _STRIP_FINAL_ANSWER_RE.sub("", text)
+    # 6. Collapse runs of blank lines introduced by removals
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _resolve_final_answer(action_input: str, response: str) -> str:
+    """Return the correct raw text to sanitize as the final answer.
+
+    When the model places a JSON value in Action Input for a FINAL_ANSWER turn,
+    the payload is structural data (tool args or tool result echoes) rather than
+    prose. Detect this and fall back to the full response so _strip_react_artifacts
+    can extract whatever natural-language content the model produced.
+
+    JSON str is the one valid case: the model quoted its prose answer. Unwrap it.
+    All other JSON types (dict, list, bool, int, float, None) → use full response.
+    Non-JSON text → use action_input unchanged (normal path).
+    """
+    if not action_input:
+        return response
+    try:
+        parsed = json.loads(action_input)
+    except (ValueError, TypeError):
+        return action_input  # plain text — normal path
+    if isinstance(parsed, str):
+        return parsed  # model wrapped its answer in JSON quotes — unwrap
+    logger.debug(
+        "[AGENT] FINAL_ANSWER action_input is JSON %s — discarding, using full response",
+        type(parsed).__name__,
+    )
+    return response  # dict / list / bool / int / float / None — discard
 
 
 # ---------------------------------------------------------------------------
@@ -149,12 +229,52 @@ class CopilotAgent:
 
             try:
                 response = await self._llm.complete(llm_messages)
-            except Exception as exc:
-                logger.error("LLM call failed on iteration %d: %s", iteration + 1, exc)
+            except LLMRateLimitError as exc:
+                logger.warning("LLM rate limit on iteration %d: %s", iteration + 1, exc)
                 final_answer = (
-                    "I'm having trouble reaching the AI model right now. "
-                    "Please try again in a moment."
+                    "AI capacity is temporarily limited. Please try again in a minute."
                 )
+                break
+            except LLMAuthError as exc:
+                logger.error("LLM auth error on iteration %d: %s", iteration + 1, exc)
+                final_answer = (
+                    "The AI service configuration is invalid. "
+                    "Please contact the administrator."
+                )
+                break
+            except LLMPermissionError as exc:
+                logger.error("LLM permission error on iteration %d: %s", iteration + 1, exc)
+                final_answer = (
+                    "The AI service configuration is invalid. "
+                    "Please contact the administrator."
+                )
+                break
+            except LLMModelNotFoundError as exc:
+                logger.error("LLM model not found on iteration %d: %s", iteration + 1, exc)
+                final_answer = (
+                    "The AI service configuration is invalid. "
+                    "Please contact the administrator."
+                )
+                break
+            except LLMProviderError as exc:
+                logger.error("LLM provider outage on iteration %d: %s", iteration + 1, exc)
+                final_answer = (
+                    "The AI provider is experiencing an outage. Please try again later."
+                )
+                break
+            except LLMTimeoutError as exc:
+                logger.warning("LLM timeout on iteration %d: %s", iteration + 1, exc)
+                final_answer = (
+                    "The AI model took too long to respond. Please try again."
+                )
+                break
+            except LLMConnectionError as exc:
+                logger.error("LLM connection failure on iteration %d: %s", iteration + 1, exc)
+                final_answer = "The AI service is currently unreachable."
+                break
+            except Exception as exc:
+                logger.error("LLM unexpected error on iteration %d: %s", iteration + 1, exc)
+                final_answer = "An unexpected AI service error occurred."
                 break
 
             logger.info(
@@ -178,7 +298,8 @@ class CopilotAgent:
 
             if action.upper() == "FINAL_ANSWER":
                 logger.info("[AGENT] FINAL_ANSWER reached at iteration %d", iteration + 1)
-                final_answer = action_input or response
+                raw = _resolve_final_answer(action_input, response)
+                final_answer = _strip_react_artifacts(raw) or _FALLBACK
                 break
 
             # Dispatch tool

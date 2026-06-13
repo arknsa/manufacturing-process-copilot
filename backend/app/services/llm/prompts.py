@@ -52,25 +52,44 @@ User: {user_message}
 Session memory (last {memory_length} messages):
 {memory_context}
 
-Think step by step:
-1. What is the user asking for?
-2. Do you have enough information in memory to answer directly?
-3. If not, which tool should you call to retrieve the needed data?
+You have NOT yet retrieved any live data this turn. You MUST call a tool now.
 
-Respond in exactly this format:
-Thought: <your reasoning>
-Action: <tool_name> or FINAL_ANSWER
-Action Input: <JSON arguments for the tool, or the final answer text>
+Hard rules for this turn:
+- Your Action MUST be one of the tool names listed above. FINAL_ANSWER is NOT \
+allowed on this turn — you may only answer after a tool has returned data.
+- Do NOT answer from session memory, prior knowledge, or assumptions.
+- Do NOT fabricate or guess any order IDs, risk scores, delay minutes, machine \
+codes, utilisation figures, root causes, or KPI values. Every number and \
+identifier you ever report must come from a tool result.
+
+Your response MUST contain exactly these three lines, all present, in this order:
+Thought: <one sentence naming the tool you will call and why>
+Action: <one tool name from the list above>
+Action Input: <a JSON object with the tool's parameters, e.g. {{}} if none are required>
+
+Example of a correct response:
+Thought: The user wants current high-risk orders, so I must query live data with get_orders_at_risk.
+Action: get_orders_at_risk
+Action Input: {{"threshold": 0.65}}
 """
 
 OBSERVATION_PROMPT = """\
 Tool result for {tool_name}:
 {tool_result}
 
-Based on this result, continue reasoning. If you have enough information, \
-provide a FINAL_ANSWER. Otherwise, choose the next tool to call.
+If the tool result contains an "error" field, do NOT call another tool. \
+Immediately respond with Action: FINAL_ANSWER and explain the problem to the \
+user in plain language (for example, that no prediction or data is available \
+for what they asked about).
 
-Thought:"""
+Otherwise, based on this result, continue reasoning. If you have enough \
+information, provide a FINAL_ANSWER. If you genuinely need different data, \
+choose the next tool to call.
+
+Respond in exactly this format:
+Thought: <one sentence: did the tool error, do you have enough data to answer, or do you need another tool?>
+Action: <tool name or FINAL_ANSWER>
+Action Input: <JSON parameters if calling a tool, or your complete plain-text answer if FINAL_ANSWER>"""
 
 # ---------------------------------------------------------------------------
 # Explanation generation
