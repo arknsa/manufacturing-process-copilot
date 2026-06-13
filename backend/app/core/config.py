@@ -37,7 +37,8 @@ class Settings(BaseSettings):
     # ── LLM routing ────────────────────────────────────────────────────────
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    OPENROUTER_MODEL: str = "qwen/qwen3-80b-a3b:free"
+    OPENROUTER_MODEL: str = "qwen/qwen3-next-80b-a3b-instruct:free"
+    OPENROUTER_FALLBACK_MODEL: str = "openai/gpt-oss-120b:free"
     OPENROUTER_CODER_MODEL: str = "qwen/qwen3-coder:free"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2:3b"

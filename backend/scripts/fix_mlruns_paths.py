@@ -27,7 +27,7 @@ def fix(mlruns_root: Path) -> None:
         new_lines = []
         changed = False
         for line in lines:
-            m = pattern.match(line.rstrip("\n"))
+            m = pattern.match(line.rstrip("\r\n"))
             if m:
                 rest = m.group(3)  # path after optional drive letter
                 # Normalise Windows backslashes and drive letter

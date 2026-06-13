@@ -15,3 +15,7 @@ htmlcov/
 *.egg-info/
 
 .claude/
+
+docs/14_interview_guide.md
+docs/15_roadmap.md
+docs/12_demo_guide.md

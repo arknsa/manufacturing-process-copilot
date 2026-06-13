@@ -79,6 +79,32 @@ class MLflowModelRegistry:
         binary_model = binary_full_pipe.named_steps["model"]
         logger.info("Binary classifier loaded: %s", type(binary_model).__name__)
 
+        # ── Backfill Day 7 cold_start_defaults_ with Phase B3 feature ───
+        # The Day 7 binary preprocessor was fitted before machine_avg_delay_minutes_90d
+        # was added to COLD_START_FEATURE_NAMES (Phase B3).  Its pickled
+        # cold_start_defaults_ has 7 keys; the live constants.py now defines 8.
+        # _fill_cold_start_nan iterates over the live COLD_START_FEATURE_NAMES tuple
+        # and indexes cold_start_defaults_[col] — missing key → KeyError at inference.
+        # Fix: inject the value from the RC run's cold_start_defaults.json, which
+        # was computed from the same training dataset but with Phase B3 present.
+        _rc_csd_path = mlflow.artifacts.download_artifacts(
+            artifact_uri=f"runs:/{self._rc_run_id}/cold_start_defaults.json",
+            dst_path=tmp,
+        )
+        with open(_rc_csd_path) as _fh:
+            _rc_cold_start = json.load(_fh)
+        selector = binary_preproc.named_steps["column_selector"]
+        if "machine_avg_delay_minutes_90d" not in selector.cold_start_defaults_:
+            selector.cold_start_defaults_["machine_avg_delay_minutes_90d"] = float(
+                _rc_cold_start["machine_avg_delay_minutes_90d"]
+            )
+            logger.info(
+                "Backfilled binary preprocessor cold_start_defaults_ with "
+                "machine_avg_delay_minutes_90d=%.4f from RC run %s",
+                selector.cold_start_defaults_["machine_avg_delay_minutes_90d"],
+                self._rc_run_id,
+            )
+
         # ── SHAP background + feature names (from binary run) ────────────
         bg_path = mlflow.artifacts.download_artifacts(
             artifact_uri=(

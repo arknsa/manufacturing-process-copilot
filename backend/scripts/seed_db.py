@@ -336,21 +336,30 @@ async def _delete_today_orders(session: AsyncSession) -> int:
     return result.rowcount
 
 
+_ORDER_BATCH_SIZE = 500  # 500 rows × 20 cols = 10 000 params — well under asyncpg's 32 767 limit
+
+
 async def _upsert_orders(session: AsyncSession, rows: List[dict]) -> int:
     if not rows:
         return 0
-    # Chunk to avoid hitting Postgres parameter limit (65535 / ~20 cols ≈ 3000 rows/chunk)
-    chunk_size = 2000
-    inserted   = 0
-    for i in range(0, len(rows), chunk_size):
-        chunk = rows[i : i + chunk_size]
-        stmt  = (
+    total_batches = (len(rows) + _ORDER_BATCH_SIZE - 1) // _ORDER_BATCH_SIZE
+    inserted = 0
+    for batch_num, i in enumerate(range(0, len(rows), _ORDER_BATCH_SIZE), start=1):
+        chunk = rows[i : i + _ORDER_BATCH_SIZE]
+        stmt = (
             pg_insert(ProductionOrder)
             .values(chunk)
             .on_conflict_do_nothing(index_elements=["order_number"])
         )
         result = await session.execute(stmt)
-        inserted += result.rowcount if result.rowcount != -1 else len(chunk)
+        # rowcount == -1 means the driver cannot determine affected rows for
+        # ON CONFLICT DO NOTHING — treat as "all submitted" for logging only.
+        batch_inserted = result.rowcount if result.rowcount >= 0 else len(chunk)
+        inserted += batch_inserted
+        log.info(
+            "  Batch %d/%d — %d rows submitted, rowcount=%d",
+            batch_num, total_batches, len(chunk), result.rowcount,
+        )
     return inserted
 
 
