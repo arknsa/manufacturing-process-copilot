@@ -1,0 +1,540 @@
+{
+  "name": "Morning Risk Sweep (W2)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 6 * * *"
+            }
+          ]
+        }
+      },
+      "id": "2c1a0001-0000-0000-0000-000000000001",
+      "name": "06:00 Daily Sweep",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 320]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://backend:8000/api/v1/orders/today",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "2c1a0002-0000-0000-0000-000000000002",
+      "name": "GET /orders/today",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 320],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-orders-present",
+              "leftValue": "={{ $json.body.length }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2c1a0003-0000-0000-0000-000000000003",
+      "name": "Orders today?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 320]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body",
+        "options": {}
+      },
+      "id": "2c1a0004-0000-0000-0000-000000000004",
+      "name": "Split orders",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [900, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://backend:8000/api/v1/orders/{{ $json.id }}/evaluate",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 1000
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "2c1a0005-0000-0000-0000-000000000005",
+      "name": "POST /orders/{id}/evaluate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 220],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f-order-id",
+              "name": "order_id",
+              "value": "={{ $('Split orders').item.json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "f-order-number",
+              "name": "order_number",
+              "value": "={{ $('Split orders').item.json.order_number }}",
+              "type": "string"
+            },
+            {
+              "id": "f-priority",
+              "name": "priority",
+              "value": "={{ $('Split orders').item.json.priority }}",
+              "type": "string"
+            },
+            {
+              "id": "f-planned-start",
+              "name": "planned_start",
+              "value": "={{ $('Split orders').item.json.planned_start }}",
+              "type": "string"
+            },
+            {
+              "id": "f-delay-prob",
+              "name": "delay_probability",
+              "value": "={{ $json.delay_probability || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "f-delay-min",
+              "name": "delay_minutes_estimate",
+              "value": "={{ $json.delay_minutes_estimate || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "f-root-cause",
+              "name": "root_cause",
+              "value": "={{ $json.root_cause || 'scoring_failed' }}",
+              "type": "string"
+            },
+            {
+              "id": "f-confidence",
+              "name": "confidence",
+              "value": "={{ $json.confidence || 'n/a' }}",
+              "type": "string"
+            },
+            {
+              "id": "f-top-factor",
+              "name": "top_factor",
+              "value": "={{ $json.top_risk_factors ? ($json.top_risk_factors[0] ? $json.top_risk_factors[0].human_label : 'n/a') : 'n/a' }}",
+              "type": "string"
+            },
+            {
+              "id": "f-scored-ok",
+              "name": "scored_ok",
+              "value": "={{ $json.delay_probability !== undefined && $json.delay_probability !== null }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2c1a0006-0000-0000-0000-000000000006",
+      "name": "Enrich scored order",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1340, 220]
+    },
+    {
+      "parameters": {
+        "type": "simple",
+        "sortFieldsUi": {
+          "sortField": [
+            {
+              "fieldName": "delay_probability",
+              "order": "descending"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2c1a0007-0000-0000-0000-000000000007",
+      "name": "Sort by risk desc",
+      "type": "n8n-nodes-base.sort",
+      "typeVersion": 1,
+      "position": [1560, 220]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "orders",
+        "options": {}
+      },
+      "id": "2c1a0008-0000-0000-0000-000000000008",
+      "name": "Roll up scored orders",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [1780, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the morning risk digest from the single aggregated item.\n// Runs once over { orders: [...] }. Filtering + thresholding live here so a\n// zero-high-risk morning STILL produces an 'all clear' digest (a native Filter\n// node would emit zero items and silently skip the notification + audit tail).\nconst THRESHOLD = 0.70; // mirrors backend HIGH_RISK_THRESHOLD\n\n// Runs in 'Run Once for All Items' mode; Aggregate emits exactly one item.\nconst orders = $input.first().json.orders || [];\nconst scanned = orders.length;\n\nconst failed = orders.filter((o) => !o.scored_ok);\nconst highRisk = orders\n  .filter((o) => o.scored_ok && o.delay_probability >= THRESHOLD)\n  .sort((a, b) => b.delay_probability - a.delay_probability);\n\nconst now = new Date().toISOString();\n\nconst lines = highRisk\n  .map((o, i) => {\n    const pct = (o.delay_probability * 100).toFixed(0);\n    const pri = (o.priority || '').toUpperCase();\n    return `${i + 1}. *${o.order_number}* — ${pct}% delay risk | ${o.root_cause} | ${pri} | driver: ${o.top_factor}`;\n  })\n  .join('\\n');\n\nconst header =\n  highRisk.length > 0\n    ? `:rotating_light: *Morning Risk Sweep* — ${highRisk.length} high-risk of ${scanned} order(s) scheduled today (threshold \\u2265 ${(THRESHOLD * 100).toFixed(0)}%)`\n    : `:white_check_mark: *Morning Risk Sweep* — 0 high-risk of ${scanned} order(s) scheduled today. All clear.`;\n\nconst failedNote = failed.length\n  ? `\\n_\\u26a0 ${failed.length} order(s) could not be scored and were skipped._`\n  : '';\n\nconst slack_text = highRisk.length > 0 ? `${header}\\n${lines}${failedNote}` : `${header}${failedNote}`;\n\nconst audit = {\n  workflow: 'morning_risk_sweep',\n  run_id: $execution.id,\n  trigger: 'schedule',\n  scanned_at: now,\n  orders_scanned: scanned,\n  high_risk_count: highRisk.length,\n  scoring_failed_count: failed.length,\n  threshold: THRESHOLD,\n  high_risk_orders: highRisk.map((o) => ({\n    order_id: o.order_id,\n    order_number: o.order_number,\n    delay_probability: o.delay_probability,\n    root_cause: o.root_cause,\n    priority: o.priority,\n  })),\n};\n\nreturn [\n  {\n    json: {\n      slack_text,\n      audit,\n      orders_scanned: scanned,\n      high_risk_count: highRisk.length,\n      scoring_failed_count: failed.length,\n    },\n  },\n];\n"
+      },
+      "id": "2c1a0009-0000-0000-0000-000000000009",
+      "name": "Build risk digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 220]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e-text",
+              "name": "slack_text",
+              "value": "=:white_check_mark: *Morning Risk Sweep* ({{ $now.toFormat('yyyy-LL-dd') }}) — No production orders scheduled today. Nothing to score.",
+              "type": "string"
+            },
+            {
+              "id": "e-scanned",
+              "name": "orders_scanned",
+              "value": "0",
+              "type": "number"
+            },
+            {
+              "id": "e-high",
+              "name": "high_risk_count",
+              "value": "0",
+              "type": "number"
+            },
+            {
+              "id": "e-failed",
+              "name": "scoring_failed_count",
+              "value": "0",
+              "type": "number"
+            },
+            {
+              "id": "e-audit",
+              "name": "audit",
+              "value": "={{ ({ workflow: 'morning_risk_sweep', run_id: $execution.id, trigger: 'schedule', scanned_at: $now.toISO(), orders_scanned: 0, high_risk_count: 0, scoring_failed_count: 0, threshold: 0.7, note: 'no_orders_scheduled' }) }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2c1a0010-0000-0000-0000-000000000010",
+      "name": "Build empty digest",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [900, 460]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-slack-set",
+              "leftValue": "={{ $env.SLACK_WEBHOOK_URL }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "2c1a0011-0000-0000-0000-000000000011",
+      "name": "Slack configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2240, 360]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.slack_text }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "2c1a0012-0000-0000-0000-000000000012",
+      "name": "Notify: Slack digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2460, 280],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "id": "2c1a0013-0000-0000-0000-000000000013",
+      "name": "Audit log",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2680, 360]
+    },
+    {
+      "parameters": {
+        "content": "## W2 — Morning Risk Sweep\n\nScheduled, read-only daily scan of today's orders.\nScores each order, ranks risk, and posts one digest to Slack.\n\n**Zero backend change** — uses only endpoints that already exist:\nGET /orders/today and POST /orders/{id}/evaluate.\n\nFlow: Trigger → Fetch → Decide → Score (throttled) → Rank → Digest → Notify → Audit.",
+        "height": 260,
+        "width": 360,
+        "color": 4
+      },
+      "id": "2c1a00a1-0000-0000-0000-0000000000a1",
+      "name": "Note: Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [200, 40]
+    },
+    {
+      "parameters": {
+        "content": "### Score & Throttle\n\nFan-out: one evaluate call per order.\nHTTP **batching** (5 items / 1000 ms) protects the model service from saturation.\n`onError: continueRegularOutput` + 3 retries: one bad order never aborts the sweep — it is flagged `scored_ok=false` and counted in the digest.",
+        "height": 240,
+        "width": 420,
+        "color": 5
+      },
+      "id": "2c1a00a2-0000-0000-0000-0000000000a2",
+      "name": "Note: Scoring",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1100, -20]
+    },
+    {
+      "parameters": {
+        "content": "### Digest, Notify & Audit\n\nAggregate → single summary item, so a **zero-high-risk** morning still sends an 'all clear' and still writes an audit record.\n\nAudit = the `audit` object on the final item, persisted by n8n's execution log (see workflow Settings → Save successful executions).",
+        "height": 260,
+        "width": 420,
+        "color": 6
+      },
+      "id": "2c1a00a3-0000-0000-0000-0000000000a3",
+      "name": "Note: Digest",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [2200, 40]
+    }
+  ],
+  "connections": {
+    "06:00 Daily Sweep": {
+      "main": [
+        [
+          {
+            "node": "GET /orders/today",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET /orders/today": {
+      "main": [
+        [
+          {
+            "node": "Orders today?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Orders today?": {
+      "main": [
+        [
+          {
+            "node": "Split orders",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build empty digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split orders": {
+      "main": [
+        [
+          {
+            "node": "POST /orders/{id}/evaluate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /orders/{id}/evaluate": {
+      "main": [
+        [
+          {
+            "node": "Enrich scored order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrich scored order": {
+      "main": [
+        [
+          {
+            "node": "Sort by risk desc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sort by risk desc": {
+      "main": [
+        [
+          {
+            "node": "Roll up scored orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roll up scored orders": {
+      "main": [
+        [
+          {
+            "node": "Build risk digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build risk digest": {
+      "main": [
+        [
+          {
+            "node": "Slack configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build empty digest": {
+      "main": [
+        [
+          {
+            "node": "Slack configured?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack configured?": {
+      "main": [
+        [
+          {
+            "node": "Notify: Slack digest",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Audit log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify: Slack digest": {
+      "main": [
+        [
+          {
+            "node": "Audit log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "saveExecutionProgress": true,
+    "timezone": "UTC"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "manufacturing-automation"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2026-06-14T00:00:00.000Z",
+  "versionId": "1"
+}
