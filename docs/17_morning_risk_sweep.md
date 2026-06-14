@@ -320,6 +320,32 @@ one fire (or temporarily set the cron a minute ahead). A green execution with a 
 This workflow establishes the reusable **Trigger → Fetch → Decide → Act → Audit** skeleton
 that W3 (Shift-End Digest) and W5 (Bottleneck Escalation) extend.
 
+## W2 Sign-Off Status
+
+Status: Complete with Deferred Slack Integration
+
+Date: 2026-06-14
+
+Reason:
+No production Slack webhook has been provisioned.
+
+Current Behavior:
+
+* Workflow imports successfully.
+* Risk scoring executes successfully.
+* Digest generation executes successfully.
+* Audit path executes successfully.
+* Slack notification path is deferred until webhook provisioning.
+
+Known Gap:
+SLACK_WEBHOOK_URL is not configured in the deployment environment.
+
+Owner:
+Infrastructure / Deployment Configuration
+
+Future Action:
+Provision Slack webhook and complete notification validation test (T3).
+
 ---
 
 *Document 17 — Manufacturing Process Copilot Technical Series*

@@ -343,6 +343,17 @@ shippable state. No code is written in this document — this is the plan.
 - Add empty-set "all clear" branch.
 - **Exit criteria:** on a seeded day, the planner channel receives a ranked list;
   a trend row lands in the Sheet; an audit row is written. Re-running is safe.
+### W2 Deployment Note
+
+W2 has been accepted as Complete with Deferred Slack Integration.
+
+The automation workflow, scoring pipeline, ranking logic, digest generation, and audit logging are validated.
+
+Slack delivery remains deferred because no production webhook has been provisioned.
+
+This does not block subsequent workflow development.
+
+A shared notification infrastructure task will be completed before production rollout of downstream workflows.
 
 ### Phase 2 — `ops` router enabler (0.5–1 day) — *backend, no new logic*
 
